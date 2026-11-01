@@ -23,15 +23,40 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: 安装 Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: 安装 Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      # 自动定位工程根目录：无论 settings.gradle.kts 在根目录
+      # 说明：这里故意不使用 android-actions/setup-android@v3
+      # 该 action 内部会执行 sdkmanager 安装 tools 包，而新版 cmdline-tools(16.0)
+      # 已彻底移除这个包，必然报 "Failed to find package 'tools'" 导致失败。
+      # GitHub 的 ubuntu runner 本身已预装 Android SDK，这里只补装缺失组件。
+      - name: 配置 Android SDK
+        run: |
+          set +e
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "SDK 根目录：$SDK_ROOT"
+
+          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)
+          echo "sdkmanager：$SDKMANAGER"
+
+          if [ -n "$SDKMANAGER" ]; then
+            chmod +x "$SDKMANAGER" 2>/dev/null
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1
+            "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" 2>&1 | tail -8
+          else
+            echo "未找到 sdkmanager，直接使用 runner 预装环境"
+          fi
+
+          echo "sdk.dir=$SDK_ROOT" > local.properties
+          echo "--- 已有 platforms ---"
+          ls "$SDK_ROOT/platforms" 2>/dev/null
+          echo "--- 已有 build-tools ---"
+          ls "$SDK_ROOT/build-tools" 2>/dev/null
+          exit 0
+
+      # 自动定位工程根目录：无论 settings.gradle.kts 在仓库根目录
       # 还是被套了一层文件夹，都能找到
       - name: 构建 Debug APK
         run: |
@@ -41,7 +66,7 @@ jobs:
           else
             FOUND=$(find . -name settings.gradle.kts -not -path "*/build/*" | head -n 1)
             if [ -z "$FOUND" ]; then
-              echo "❌ 仓库里找不到 settings.gradle.kts"
+              echo "仓库里找不到 settings.gradle.kts"
               echo "请检查工程文件是否完整上传"
               exit 1
             fi
@@ -56,7 +81,7 @@ jobs:
           mkdir -p apk-output
           find . -name "*.apk" -type f ! -name "*-androidTest.apk" -exec cp {} apk-output/ \;
           if [ -z "$(ls -A apk-output)" ]; then
-            echo "❌ 没有产出 APK"
+            echo "没有产出 APK"
             exit 1
           fi
           cd apk-output
@@ -78,19 +103,19 @@ jobs:
       - name: 输出安装说明
         run: |
           {
-            echo "## ✅ 构建完成"
+            echo "## 构建完成"
             echo ""
             echo "APK 已生成，**在本页最下方的 Artifacts 区域下载**。"
             echo ""
+            echo "| 文件 | 大小 |"
+            echo "|---|---|"
             for f in apk-output/*.apk; do
               [ -e "$f" ] || continue
-              echo "| 文件 | 大小 |"
-              echo "|---|---|"
               echo "| $(basename $f) | $(du -h "$f" | cut -f1) |"
             done
             echo ""
             echo "### 安装步骤"
             echo "1. 把 zip 解压，取出里面的 apk"
             echo "2. 传到手机（数据线 / 微信文件传输助手）"
-            echo "3. 点开安装，提示「未知来源」时选择允许"
+            echo "3. 点开安装，提示「未知来源」时允许安装"
           } >> $GITHUB_STEP_SUMMARY
