@@ -13,6 +13,10 @@ jobs:
     name: 编译 Debug 包
     runs-on: ubuntu-latest
 
+    # 需要在构建失败时把错误日志 commit 回仓库
+    permissions:
+      contents: write
+
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
@@ -28,10 +32,9 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # 说明：这里故意不使用 android-actions/setup-android@v3
-      # 该 action 内部会执行 sdkmanager 安装 tools 包，而新版 cmdline-tools(16.0)
-      # 已彻底移除这个包，必然报 "Failed to find package 'tools'" 导致失败。
-      # GitHub 的 ubuntu runner 本身已预装 Android SDK，这里只补装缺失组件。
+      # 说明：故意不使用 android-actions/setup-android@v3
+      # 它内部会安装 tools 包，而新版 cmdline-tools(16.0) 已移除该包，
+      # 必然报 "Failed to find package 'tools'" 而失败。
       - name: 配置 Android SDK
         run: |
           set +e
@@ -56,27 +59,61 @@ jobs:
           ls "$SDK_ROOT/build-tools" 2>/dev/null
           exit 0
 
-      # 自动定位工程根目录：无论 settings.gradle.kts 在仓库根目录
-      # 还是被套了一层文件夹，都能找到
+      # 自动定位工程根目录：settings.gradle.kts 在根目录或被套一层都能处理
       - name: 构建 Debug APK
+        id: build
+        continue-on-error: true
         run: |
-          set -e
+          set +e
           if [ -f settings.gradle.kts ]; then
             ROOT="."
           else
             FOUND=$(find . -name settings.gradle.kts -not -path "*/build/*" | head -n 1)
             if [ -z "$FOUND" ]; then
-              echo "仓库里找不到 settings.gradle.kts"
-              echo "请检查工程文件是否完整上传"
+              echo "仓库里找不到 settings.gradle.kts" | tee /tmp/build.log
               exit 1
             fi
             ROOT=$(dirname "$FOUND")
           fi
           echo "工程根目录：$ROOT"
           cd "$ROOT"
-          gradle assembleDebug --no-daemon --stacktrace
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
+          exit ${PIPESTATUS[0]}
+
+      # 构建失败时把关键错误回传仓库，方便本地排查（无需登录网页看日志）
+      - name: 回传错误日志
+        if: steps.build.outcome == 'failure'
+        run: |
+          mkdir -p ci-logs
+          {
+            echo "===== 构建失败日志 $(date -u) ====="
+            echo ""
+            echo "----- 编译错误（e: 开头）-----"
+            grep -E "^e: " /tmp/build.log | head -200
+            echo ""
+            echo "----- 其他错误行 -----"
+            grep -E "error:|FAILURE:|What went wrong|Could not resolve|Caused by" /tmp/build.log | head -100
+            echo ""
+            echo "----- 日志尾部 200 行 -----"
+            tail -200 /tmp/build.log
+          } > ci-logs/last-error.log
+
+          echo "回传日志行数：$(wc -l < ci-logs/last-error.log)"
+
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add -f ci-logs/last-error.log
+          git commit -m "CI 错误日志 [skip ci]" || echo "与上次相同，无需提交"
+          git push || echo "推送失败（可能无写权限）"
+
+      - name: 构建失败则终止
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "构建失败，日志已回传 ci-logs/last-error.log"
+          exit 1
 
       - name: 收集 APK
+        if: steps.build.outcome == 'success'
         run: |
           mkdir -p apk-output
           find . -name "*.apk" -type f ! -name "*-androidTest.apk" -exec cp {} apk-output/ \;
@@ -93,6 +130,7 @@ jobs:
           ls -lh
 
       - name: 上传 APK
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: StickerFerry-APK
@@ -101,6 +139,7 @@ jobs:
           if-no-files-found: error
 
       - name: 输出安装说明
+        if: steps.build.outcome == 'success'
         run: |
           {
             echo "## 构建完成"
