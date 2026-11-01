@@ -21,6 +21,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.stickerferry.ui.*
+import com.stickerferry.ui.theme.StickerFerryTheme
 
 /** 底部导航项 */
 private enum class Tab(val route: String, val label: String, val icon: String) {

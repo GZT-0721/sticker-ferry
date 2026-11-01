@@ -17,17 +17,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.stickerferry.data.Source
+import com.stickerferry.data.Sticker
 import com.stickerferry.util.SafHelper
 import com.stickerferry.ui.theme.QqBlue
 import com.stickerferry.ui.theme.WxGreen
 
 @Composable
 fun LibraryScreen(vm: MainViewModel, onGoStudio: () -> Unit) {
+    val ctx = LocalContext.current
     val scanning by vm.scanning.collectAsState()
     val report by vm.report.collectAsState()
     val filter by vm.filter.collectAsState()
@@ -40,7 +43,7 @@ fun LibraryScreen(vm: MainViewModel, onGoStudio: () -> Unit) {
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         uri?.let {
-            SafHelper.persistPermission(it)
+            SafHelper.persistPermission(ctx, it)
             vm.onQqPicked(it)
         }
     }
@@ -48,7 +51,7 @@ fun LibraryScreen(vm: MainViewModel, onGoStudio: () -> Unit) {
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         uri?.let {
-            SafHelper.persistPermission(it)
+            SafHelper.persistPermission(ctx, it)
             vm.onWechatPicked(it)
         }
     }

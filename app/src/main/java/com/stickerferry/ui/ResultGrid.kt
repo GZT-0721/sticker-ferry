@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.stickerferry.ui.theme.QqBlue
 import com.stickerferry.transfer.QQImporter
 import kotlinx.coroutines.launch
 
