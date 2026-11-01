@@ -80,31 +80,41 @@ jobs:
           gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
           exit ${PIPESTATUS[0]}
 
-      # 构建失败时把关键错误回传仓库，方便本地排查（无需登录网页看日志）
-      - name: 回传错误日志
-        if: steps.build.outcome == 'failure'
+      # 无论成败都把状态回传仓库，本地 git pull 即可判断结果
+      - name: 回传构建状态
+        if: always()
         run: |
+          set +e
           mkdir -p ci-logs
-          {
-            echo "===== 构建失败日志 $(date -u) ====="
-            echo ""
-            echo "----- 编译错误（e: 开头）-----"
-            grep -E "^e: " /tmp/build.log | head -200
-            echo ""
-            echo "----- 其他错误行 -----"
-            grep -E "error:|FAILURE:|What went wrong|Could not resolve|Caused by" /tmp/build.log | head -100
-            echo ""
-            echo "----- 日志尾部 200 行 -----"
-            tail -200 /tmp/build.log
-          } > ci-logs/last-error.log
 
-          echo "回传日志行数：$(wc -l < ci-logs/last-error.log)"
+          {
+            echo "构建结果：${{ steps.build.outcome }}"
+            echo "时间：$(date -u)"
+          } > ci-logs/last-build.txt
+
+          if [ "${{ steps.build.outcome }}" != "success" ]; then
+            {
+              echo "----- 编译错误（e: 开头）-----"
+              grep -E "^e: " /tmp/build.log | head -200
+              echo ""
+              echo "----- 其他错误行 -----"
+              grep -E "error:|FAILURE:|What went wrong|Could not resolve|Caused by" /tmp/build.log | head -100
+              echo ""
+              echo "----- 日志尾部 150 行 -----"
+              tail -150 /tmp/build.log
+            } > ci-logs/last-error.log
+            echo "错误日志行数：$(wc -l < ci-logs/last-error.log)"
+          else
+            rm -f ci-logs/last-error.log
+            echo "构建成功，已清除旧错误日志"
+          fi
 
           git config user.name "ci-bot"
           git config user.email "ci-bot@users.noreply.github.com"
-          git add -f ci-logs/last-error.log
-          git commit -m "CI 错误日志 [skip ci]" || echo "与上次相同，无需提交"
+          git add -A ci-logs
+          git commit -m "CI 构建状态：${{ steps.build.outcome }} [skip ci]" || echo "无变化，跳过提交"
           git push || echo "推送失败（可能无写权限）"
+          exit 0
 
       - name: 构建失败则终止
         if: steps.build.outcome == 'failure'
