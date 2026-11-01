@@ -23,6 +23,20 @@
     <!-- 网络：AI 生成 + 图库检索。不联网时这些功能不可用，其余功能完全离线 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+      所有文件访问权限 —— 「自动读取账号与表情」的前提。
+
+      Android 11+ 起，Android/data/ 目录（QQ 和微信的表情都放这里）
+      默认对第三方 App 完全不可见。只有拿到这个权限，才能自动遍历
+      文件系统找到账号目录，而不需要用户手动一个个点系统选择器。
+
+      注意：这是高敏感权限，上架 Google Play 会被拒。
+      本工具自用、不上架，所以可用 —— 这一点在设置页也对用户讲明了。
+    -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
     <!-- 批量任务完成后通知（可选） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
