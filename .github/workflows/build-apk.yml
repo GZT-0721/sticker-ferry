@@ -1,0 +1,96 @@
+name: 构建 APK
+
+# 触发方式：
+#   1. 推代码到 main / master —— 自动开始
+#   2. Actions 页面点「Run workflow」—— 手动开始
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: 编译 Debug 包
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      # 自动定位工程根目录：无论 settings.gradle.kts 在根目录
+      # 还是被套了一层文件夹，都能找到
+      - name: 构建 Debug APK
+        run: |
+          set -e
+          if [ -f settings.gradle.kts ]; then
+            ROOT="."
+          else
+            FOUND=$(find . -name settings.gradle.kts -not -path "*/build/*" | head -n 1)
+            if [ -z "$FOUND" ]; then
+              echo "❌ 仓库里找不到 settings.gradle.kts"
+              echo "请检查工程文件是否完整上传"
+              exit 1
+            fi
+            ROOT=$(dirname "$FOUND")
+          fi
+          echo "工程根目录：$ROOT"
+          cd "$ROOT"
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: 收集 APK
+        run: |
+          mkdir -p apk-output
+          find . -name "*.apk" -type f ! -name "*-androidTest.apk" -exec cp {} apk-output/ \;
+          if [ -z "$(ls -A apk-output)" ]; then
+            echo "❌ 没有产出 APK"
+            exit 1
+          fi
+          cd apk-output
+          for f in *.apk; do
+            case "$f" in
+              *debug*) mv "$f" "StickerFerry-debug.apk" ;;
+            esac
+          done
+          ls -lh
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: StickerFerry-APK
+          path: apk-output/*.apk
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: 输出安装说明
+        run: |
+          {
+            echo "## ✅ 构建完成"
+            echo ""
+            echo "APK 已生成，**在本页最下方的 Artifacts 区域下载**。"
+            echo ""
+            for f in apk-output/*.apk; do
+              [ -e "$f" ] || continue
+              echo "| 文件 | 大小 |"
+              echo "|---|---|"
+              echo "| $(basename $f) | $(du -h "$f" | cut -f1) |"
+            done
+            echo ""
+            echo "### 安装步骤"
+            echo "1. 把 zip 解压，取出里面的 apk"
+            echo "2. 传到手机（数据线 / 微信文件传输助手）"
+            echo "3. 点开安装，提示「未知来源」时选择允许"
+          } >> $GITHUB_STEP_SUMMARY

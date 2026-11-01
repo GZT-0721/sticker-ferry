@@ -1,0 +1,8 @@
+# 这个文件在你的电脑上生成，不要提交到版本库
+# Android Studio 打开工程时会自动创建它
+
+# macOS / Linux
+# sdk.dir=/Users/你的用户名/Library/Android/sdk
+
+# Windows（注意用双反斜杠）
+# sdk.dir=C:\Users\你的用户名\AppData\Local\Android\Sdk

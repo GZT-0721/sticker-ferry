@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">表情摆渡</string>
+
+    <!-- 引导文案 -->
+    <string name="privacy_title">关于隐私</string>
+    <string name="privacy_body">表情摆渡只在本机读取你已授权目录中的表情图片，全部处理都在设备上完成。\n\n仅在你自己开启 AI 功能时，才会联网调用你配置的模型服务。</string>
+
+    <!-- 权限引导 -->
+    <string name="saf_hint">Android 11 及以上需要手动授权目录，这是系统限制，无法绕过。</string>
+
+    <!-- 投放引导 -->
+    <string name="wx_guide_step1">图片已复制，去微信粘贴即可</string>
+    <string name="wx_guide_step2">在微信里长按输入框 → 粘贴</string>
+    <string name="wx_guide_step3">发送后长按该表情 → 添加到表情</string>
+
+    <!-- 文案提醒 -->
+    <string name="web_search_warning">全网搜索的图，许可不明。结果可能来自任意网站，大多没有明确授权。自用可以，但转发到群里就等于传播了 —— 建议先确认来源。</string>
+</resources>
