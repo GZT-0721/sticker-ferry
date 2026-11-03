@@ -148,13 +148,33 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
+      # Artifacts 走境外 CDN，国内下载经常中断。
+      # 这里把 APK 额外推到一个独立分支 apk-latest ——
+      # 用 git 拉取即可（SSH 通道稳定，且天然支持增量/断点续传）。
+      # 每次 force push 覆盖，分支永远只有一个 commit，不会让仓库膨胀。
+      - name: 推送 APK 到 apk-latest 分支
+        if: steps.build.outcome == 'success'
+        run: |
+          set +e
+          mkdir -p /tmp/apkpush
+          cp apk-output/*.apk /tmp/apkpush/
+          cd /tmp/apkpush
+          git init -q
+          git checkout -q -b apk-latest
+          git config user.name "ci-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add -A
+          git commit -q -m "APK build $(date -u +%Y%m%d-%H%M)"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push -f origin apk-latest && echo "已推送 apk-latest 分支" || echo "推送失败"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 输出安装说明
         if: steps.build.outcome == 'success'
         run: |
           {
             echo "## 构建完成"
-            echo ""
-            echo "APK 已生成，**在本页最下方的 Artifacts 区域下载**。"
             echo ""
             echo "| 文件 | 大小 |"
             echo "|---|---|"
@@ -163,8 +183,20 @@ jobs:
               echo "| $(basename $f) | $(du -h "$f" | cut -f1) |"
             done
             echo ""
+            echo "### 下载方式一（推荐，国内更稳）"
+            echo ""
+            echo "APK 已推到独立分支 \`apk-latest\`，用 git 拉取，可断点续传："
+            echo ""
+            echo '```bash'
+            echo "git clone --depth 1 -b apk-latest git@github.com:${{ github.repository }}.git apk"
+            echo '```'
+            echo ""
+            echo "### 下载方式二（Artifacts）"
+            echo ""
+            echo "本页最下方 Artifacts 区域。走境外 CDN，国内可能中途断开。"
+            echo ""
             echo "### 安装步骤"
-            echo "1. 把 zip 解压，取出里面的 apk"
+            echo "1. 取出 apk 文件"
             echo "2. 传到手机（数据线 / 微信文件传输助手）"
             echo "3. 点开安装，提示「未知来源」时允许安装"
           } >> $GITHUB_STEP_SUMMARY
