@@ -14,11 +14,25 @@ import androidx.compose.ui.unit.sp
 import com.stickerferry.util.SecureStore
 
 @Composable
-fun SettingsScreen(vm: MainViewModel, onGoAiConfig: () -> Unit) {
+fun SettingsScreen(
+    vm: MainViewModel,
+    onGoAiConfig: () -> Unit,
+    onGoBindings: () -> Unit,
+    onGoDiagnose: () -> Unit,
+) {
     val ctx = LocalContext.current
     val qqUri by vm.qqUri.collectAsState()
     val wechatUri by vm.wechatUri.collectAsState()
     val aiConfigured by vm.aiConfigured.collectAsState()
+    val storageOk by vm.storageOk.collectAsState()
+    val bindings by vm.bindings.collectAsState()
+    val health by vm.health.collectAsState()
+
+    val brokenCount = bindings.count {
+        val h = health[it.id]
+        h == null || h.status == com.stickerferry.data.BindingStatus.DENIED ||
+            h.status == com.stickerferry.data.BindingStatus.PATH_MISSING
+    }
 
     var allowWebSearch by remember { mutableStateOf(false) }
 
@@ -41,22 +55,37 @@ fun SettingsScreen(vm: MainViewModel, onGoAiConfig: () -> Unit) {
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
-            SectionTitle("数据来源")
+            SectionTitle("数据来源与授权")
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SfSettingItem(
+                    "🔐",
+                    "授权与账号绑定",
+                    when {
+                        !storageOk -> "缺少所有文件访问权限 · 点此处理"
+                        brokenCount > 0 -> "$brokenCount 个绑定需要修复 · 点此处理"
+                        bindings.isEmpty() -> "还没有绑定来源 · 点此扫描或手动授权"
+                        else -> "${bindings.size} 个绑定，全部正常"
+                    },
+                    onClick = onGoBindings,
+                )
+                SfSettingItem(
+                    "🔍",
+                    "诊断报告",
+                    "扫不到表情时先跑这个，能定位卡在哪一层",
+                    onClick = onGoDiagnose,
+                )
+                SfSettingItem(
                     "🐧",
-                    "QQ 表情目录",
-                    if (qqUri != null) "已授权" else "未授权 · 点击去设置",
-                ) {
-                    android.widget.Toast.makeText(ctx, "请在表情库页点击 QQ 统计卡授权", android.widget.Toast.LENGTH_SHORT).show()
-                }
+                    "QQ 目录授权（手动）",
+                    if (qqUri != null) "已授权一个目录" else "未使用 · 在授权页里选目录",
+                    onClick = onGoBindings,
+                )
                 SfSettingItem(
                     "💬",
-                    "微信表情目录",
-                    if (wechatUri != null) "已授权" else "未授权 · 点击去设置",
-                ) {
-                    android.widget.Toast.makeText(ctx, "请在表情库页点击微信统计卡授权", android.widget.Toast.LENGTH_SHORT).show()
-                }
+                    "微信目录授权（手动）",
+                    if (wechatUri != null) "已授权一个目录" else "未使用 · 在授权页里选目录",
+                    onClick = onGoBindings,
+                )
             }
 
             Spacer(Modifier.height(18.dp))

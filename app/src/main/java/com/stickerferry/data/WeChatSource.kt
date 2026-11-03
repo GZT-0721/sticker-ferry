@@ -43,32 +43,37 @@ object WeChatSource {
      */
     fun scan(ctx: Context, treeUri: Uri): Pair<List<Sticker>, String?> {
         return try {
+            // 注意：这里只列一次。上一版列了两次（files 和 allFiles 各一次），
+            // 既慢一倍，算出来的「跳过几个」也是错的。
             val files = SafHelper.listImages(ctx, treeUri)
 
-            // 统计一下跳过了多少，方便界面如实告知用户
-            val allFiles = SafHelper.listImages(ctx, treeUri)
-
+            var encrypted = 0
             val list = files.mapNotNull { f ->
                 val uri = f.uri
                 val name = f.name ?: return@mapNotNull null
-                if (looksEncrypted(name)) return@mapNotNull null
+                // SafHelper 已经按文件头识别过一遍，能走到这里的都是真图片。
+                // 这里再判一次扩展名，只为统计「有多少个是不带后缀的」，
+                // 这类文件通常是微信的加密缓存，用户可能需要知道。
+                if (looksEncrypted(name)) encrypted++
                 Sticker(
                     id = uri.toString(),
                     uri = uri,
                     name = name,
                     source = Source.WECHAT,
-                    isAnim = SafHelper.isAnimated(name),
+                    isAnim = SafHelper.isAnimated(name) ||
+                        SafHelper.sniffMime(ctx, uri) == "image/gif",
                     sizeBytes = f.length(),
                     addedAt = f.lastModified(),
                 )
             }
 
-            val skipped = (allFiles.size - list.size).coerceAtLeast(0)
-            val warn = if (list.isEmpty()) {
-                "微信目录里没有可直接读取的图片（缓存多为加密文件，本工具不做破解）"
-            } else if (skipped > 0) {
-                "已读取 ${list.size} 个，另有 $skipped 个加密文件无法读取"
-            } else null
+            val warn = when {
+                list.isEmpty() ->
+                    "微信目录里没有可直接读取的图片（缓存多为加密文件，本工具不做破解）"
+                encrypted > 0 ->
+                    "已读取 ${list.size} 个，其中 $encrypted 个是无后缀文件，靠文件头识别出来的"
+                else -> null
+            }
 
             list to warn
         } catch (e: Exception) {

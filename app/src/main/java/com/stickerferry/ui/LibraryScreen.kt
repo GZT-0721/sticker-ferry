@@ -31,7 +31,12 @@ import com.stickerferry.ui.theme.QqBlue
 import com.stickerferry.ui.theme.WxGreen
 
 @Composable
-fun LibraryScreen(vm: MainViewModel, onGoStudio: () -> Unit) {
+fun LibraryScreen(
+    vm: MainViewModel,
+    onGoStudio: () -> Unit,
+    onGoBindings: () -> Unit,
+    onGoDiagnose: () -> Unit,
+) {
     val ctx = LocalContext.current
     val scanning by vm.scanning.collectAsState()
     val report by vm.report.collectAsState()
@@ -41,6 +46,14 @@ fun LibraryScreen(vm: MainViewModel, onGoStudio: () -> Unit) {
     val selected by vm.selected.collectAsState()
     val qqUri by vm.qqUri.collectAsState()
     val wechatUri by vm.wechatUri.collectAsState()
+    val bindings by vm.bindings.collectAsState()
+    val health by vm.health.collectAsState()
+
+    val brokenCount = bindings.count {
+        val h = health[it.id]
+        h == null || h.status == com.stickerferry.data.BindingStatus.DENIED ||
+            h.status == com.stickerferry.data.BindingStatus.PATH_MISSING
+    }
 
     // SAF 目录选择器
     val qqPicker = rememberLauncherForActivityResult(
@@ -60,9 +73,11 @@ fun LibraryScreen(vm: MainViewModel, onGoStudio: () -> Unit) {
         }
     }
 
-    // 首次进入且已授权时自动扫一次 —— 真正的「自动读取」，用户不用点任何东西
+    // 首次进入且已授权、但还没有结果时补扫一次。
+    // 覆盖「刚在设置里开了权限再回来」这种情况 —— ViewModel 的 init 已经扫过一次，
+    // 那次没权限，回到这里必须重来一遍，否则永远是 0。
     LaunchedEffect(Unit) {
-        if (StorageAccess.hasAllFilesAccess() && accounts.isEmpty() && !scanning) {
+        if (StorageAccess.hasAllFilesAccess() && report.total == 0 && !scanning) {
             vm.autoScan()
         }
     }
@@ -101,13 +116,16 @@ fun LibraryScreen(vm: MainViewModel, onGoStudio: () -> Unit) {
                 storageOk = storageOk,
                 scanning = scanning,
                 accountCount = accounts.size,
+                bindingCount = bindings.size,
+                brokenCount = brokenCount,
                 onScan = { vm.autoScan() },
                 onOpenSettings = { StorageAccess.openAllFilesSettings(ctx) },
+                onOpenBindings = onGoBindings,
             )
 
-            // ---- 已发现的账号与来源 ----
+            // ---- 已绑定的账号与来源 ----
             if (accounts.isNotEmpty()) {
-                SectionTitle("发现的账号与来源", "${accounts.size} 个")
+                SectionTitle("已绑定的账号", "${accounts.size} 个")
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     accounts.forEach { acc -> AccountRow(acc) }
                 }
@@ -140,13 +158,23 @@ fun LibraryScreen(vm: MainViewModel, onGoStudio: () -> Unit) {
 
             Spacer(Modifier.height(14.dp))
 
-            // ---- 授权引导（未授权时显示）----
-            if (qqUri == null || wechatUri == null) {
+            // ---- 授权入口 ----
+            // 这里不再写「点上方统计卡授权」那句旧提示 —— 现在的正路是
+            // 「所有文件访问权限 + 自动扫描」，手动选目录只是兜底，不能当主路径教用户。
+            if (!storageOk) {
+                SfNotice(
+                    kind = NoticeKind.WARN,
+                    icon = "🔐",
+                    text = "还没拿到「所有文件访问」权限，Android 11+ 下读不到 QQ / 微信 的表情目录。" +
+                        "点上面的按钮开启后会自动重扫。",
+                )
+                Spacer(Modifier.height(12.dp))
+            } else if (bindings.isEmpty()) {
                 SfNotice(
                     kind = NoticeKind.INFO,
-                    icon = "🔓",
-                    text = "Android 11+ 需手动授权目录才能读取。点上方统计卡选择对应目录；" +
-                        "未授权的来源会显示为 0。",
+                    icon = "🔗",
+                    text = "权限有了，但还没有绑定任何来源。可能目录结构没匹配上 —— " +
+                        "跑一次诊断能看到每条候选路径卡在哪，或者用手动授权指定目录。",
                 )
                 Spacer(Modifier.height(12.dp))
             }
@@ -159,6 +187,28 @@ fun LibraryScreen(vm: MainViewModel, onGoStudio: () -> Unit) {
             report.wechatError?.let {
                 SfNotice(NoticeKind.WARN, "⚠️", "微信：$it")
                 Spacer(Modifier.height(8.dp))
+            }
+
+            // 失败了就给下一步，不能只报错不给出路。
+            // 三级回退：自动扫描 →（这里）手动授权/看诊断 → 手动导入
+            if (report.hasPartialFailure) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onGoBindings,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text("🔐 授权与绑定", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    OutlinedButton(
+                        onClick = onGoDiagnose,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text("🔍 跑诊断", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
             }
 
             // ---- 筛选 ----
@@ -388,32 +438,59 @@ private fun PlayerBar(
 /**
  * 自动扫描卡片。
  * 没权限时不弹错误框，而是把「为什么要这个权限」讲清楚，并给一个直达设置的按钮。
+ *
+ * 三个状态各有各的说法：
+ *   没权限      → 讲原因 + 直达设置
+ *   有权限但空  → 承认没找到，并指向诊断/手动授权，而不是让用户以为软件坏了
+ *   有绑定但坏  → 明确指出有几个需要修复
  */
 @Composable
 private fun AutoScanCard(
     storageOk: Boolean,
     scanning: Boolean,
     accountCount: Int,
+    bindingCount: Int,
+    brokenCount: Int,
     onScan: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenBindings: () -> Unit,
 ) {
     SfCard(Modifier.padding(bottom = 12.dp)) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (storageOk) "⚡" else "🔐", fontSize = 21.sp)
+                Text(
+                    when {
+                        !storageOk -> "🔐"
+                        brokenCount > 0 -> "⚠️"
+                        accountCount > 0 -> "⚡"
+                        else -> "🔗"
+                    },
+                    fontSize = 21.sp,
+                )
                 Spacer(Modifier.width(11.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (storageOk) "自动扫描账号与表情" else "需要「所有文件访问」权限",
+                        when {
+                            !storageOk -> "需要「所有文件访问」权限"
+                            brokenCount > 0 -> "$brokenCount 个绑定需要修复"
+                            accountCount > 0 -> "已绑定 $accountCount 个来源"
+                            else -> "还没找到表情目录"
+                        },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (storageOk) MaterialTheme.colorScheme.onSurface else WarnColor,
+                        color = if (!storageOk || brokenCount > 0) WarnColor
+                        else MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         when {
-                            !storageOk -> "Android 11+ 起，不授权就读不到 QQ / 微信 的表情目录"
-                            accountCount > 0 -> "已发现 $accountCount 个来源，可随时重新扫描"
-                            else -> "一键找出手机上所有 QQ / 微信 账号的表情"
+                            !storageOk ->
+                                "Android 11+ 起，不授权就读不到 QQ / 微信 的表情目录"
+                            brokenCount > 0 ->
+                                "目录失效或被系统拦截，到授权与绑定里处理"
+                            accountCount > 0 ->
+                                "可随时重新扫描，结果会合并到已有绑定"
+                            else ->
+                                "自动找过一遍没命中。可能是存储结构和预期不同 —— 跑个诊断看看"
                         },
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -422,17 +499,36 @@ private fun AutoScanCard(
                 }
             }
             Spacer(Modifier.height(11.dp))
-            if (storageOk) {
+
+            if (!storageOk) {
+                SfButton(
+                    text = "去开启权限",
+                    container = WarnColor,
+                    onClick = onOpenSettings,
+                )
+            } else {
                 SfButton(
                     text = if (scanning) "扫描中…" else "⚡ 自动扫描全部账号",
                     enabled = !scanning,
                     onClick = onScan,
                 )
-            } else {
-                SfButton(
-                    text = "去开启权限",
-                    container = WarnColor,
-                    onClick = onOpenSettings,
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onOpenBindings() }
+                    .padding(vertical = 7.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "🔐 授权与账号绑定 · ${bindingCount} 个绑定",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }

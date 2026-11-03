@@ -96,7 +96,12 @@ private fun AppRoot() {
         ) {
             NavHost(navController = nav, startDestination = Tab.LIBRARY.route) {
                 composable(Tab.LIBRARY.route) {
-                    LibraryScreen(vm, onGoStudio = { nav.navigate(Tab.STUDIO.route) })
+                    LibraryScreen(
+                        vm = vm,
+                        onGoStudio = { nav.navigate(Tab.STUDIO.route) },
+                        onGoBindings = { nav.navigate("bindings") },
+                        onGoDiagnose = { nav.navigate("diagnose") },
+                    )
                 }
                 composable(Tab.STUDIO.route) {
                     StudioScreen(vm, onGoConfig = { nav.navigate("aicfg") })
@@ -105,10 +110,25 @@ private fun AppRoot() {
                     TransferScreen(vm, onGoStudio = { nav.navigate(Tab.STUDIO.route) })
                 }
                 composable(Tab.SETTINGS.route) {
-                    SettingsScreen(vm, onGoAiConfig = { nav.navigate("aicfg") })
+                    SettingsScreen(
+                        vm = vm,
+                        onGoAiConfig = { nav.navigate("aicfg") },
+                        onGoBindings = { nav.navigate("bindings") },
+                        onGoDiagnose = { nav.navigate("diagnose") },
+                    )
                 }
                 composable("aicfg") {
                     AiConfigScreen(vm, onDone = { nav.popBackStack() })
+                }
+                composable("bindings") {
+                    BindingScreen(
+                        vm = vm,
+                        onDiagnose = { nav.navigate("diagnose") },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+                composable("diagnose") {
+                    DiagnoseScreen(vm, onBack = { nav.popBackStack() })
                 }
             }
         }
